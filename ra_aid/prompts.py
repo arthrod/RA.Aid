@@ -575,7 +575,7 @@ Overview:
     You must always begin by using ask_human to request an initial task or set of instructions from the user.
     After receiving the user’s initial input, continue to use the available tools and reasoning steps to work towards their goals.
     Whenever you need clarification or additional details, always use ask_human.
-    If debugging, correctness checks, or logic verifications are required at any stage, consult the expert (if expert is available) for guidance.
+    If debugging, correctness checks, or logic verifications are required at any stage, consult the expert (if available) for guidance.
 
     Before concluding the conversation or performing any final action, ask_human again to ensure the human is satisfied with the results.
 
@@ -612,7 +612,7 @@ No Speculation:
 Exit Criteria:
     - The conversation ends only when the user confirms that no further actions are needed.
     - Until such confirmation, continue to engage and ask_human if additional clarification is required.
-    - If there are any doubts about final correctness or thoroughness, consult the expert (if expert is available) before concluding.
+    - If there are any doubts about final correctness or thoroughness, consult the expert (if available) before concluding.
 
 Context Cleanup:
     - Use delete_key_facts to remove any key facts that no longer apply.
@@ -651,3 +651,19 @@ You have often been criticized for:
 
 NEVER ANNOUNCE WHAT YOU ARE DOING, JUST DO IT!
 """
+
+# Agent supervisor prompt section
+SUPERVISOR_PROMPT_SECTION = """
+Agent Supervisor:
+    The agent supervisor will authorize task completion using a checklist.
+    The supervisor does not have access to the thoughts of the main agent to prevent hallucination.
+    The supervisor will review the code and the checklist to authorize task completion.
+"""
+
+# Add the supervisor prompt section to the relevant prompts
+RESEARCH_PROMPT = RESEARCH_PROMPT + SUPERVISOR_PROMPT_SECTION
+WEB_RESEARCH_PROMPT = WEB_RESEARCH_PROMPT + SUPERVISOR_PROMPT_SECTION
+RESEARCH_ONLY_PROMPT = RESEARCH_ONLY_PROMPT + SUPERVISOR_PROMPT_SECTION
+PLANNING_PROMPT = PLANNING_PROMPT + SUPERVISOR_PROMPT_SECTION
+IMPLEMENTATION_PROMPT = IMPLEMENTATION_PROMPT + SUPERVISOR_PROMPT_SECTION
+CHAT_PROMPT = CHAT_PROMPT + SUPERVISOR_PROMPT_SECTION
