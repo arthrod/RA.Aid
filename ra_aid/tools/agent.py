@@ -290,10 +290,33 @@ def request_task_implementation(task_spec: str) -> Dict[str, Any]:
 
 @tool("request_implementation")
 def request_implementation(task_spec: str) -> Dict[str, Any]:
-    """Spawn a planning agent to create an implementation plan for the given task.
+    """
+    Spawn a planning agent to create an implementation plan for a given task specification.
     
-    Args:
-        task_spec: The task specification to plan implementation for
+    This function initializes a language model, runs a planning agent to generate an implementation strategy, and handles various execution scenarios including successful completion, user interruption, and unexpected errors.
+    
+    Parameters:
+        task_spec (str): A detailed specification of the task requiring an implementation plan.
+    
+    Returns:
+        Dict[str, Any]: A comprehensive result dictionary containing:
+            - work_log (Optional[List]): Detailed log of work performed during task planning
+            - completion_message (Optional[str]): Message describing task completion status
+            - key_facts (List): Important facts extracted during the planning process
+            - related_files (List): Files potentially relevant to the implementation
+            - key_snippets (List): Code or text snippets of significance
+            - success (bool): Indicates whether the planning process completed successfully
+            - reason (Optional[str]): Explanation for task failure or interruption
+    
+    Raises:
+        KeyboardInterrupt: If the user forcefully terminates the planning process
+        Exception: For any unexpected errors during planning
+    
+    Example:
+        result = request_implementation("Create a web scraper for news articles")
+        if result['success']:
+            print(result['completion_message'])
+            print("Related files:", result['related_files'])
     """
     # Initialize model from config
     config = _global_memory.get('config', {})
@@ -350,13 +373,25 @@ def request_implementation(task_spec: str) -> Dict[str, Any]:
 
 @tool("authorize_task_completion")
 def authorize_task_completion(task_output: str) -> bool:
-    """Authorize task completion using the AgentSupervisor.
+    """
+    Authorize task completion using an AgentSupervisor.
+    
+    Validates the output of a task against predefined criteria to determine if the task can be considered complete.
     
     Args:
-        task_output: The output of the task to be authorized
-        
+        task_output (str): The output or result of the task requiring authorization.
+    
     Returns:
-        bool: True if the task is authorized as complete, False otherwise
+        bool: True if the task meets completion criteria, False otherwise.
+    
+    Raises:
+        ValueError: If configuration or checklist loading fails.
+        RuntimeError: If supervisor authorization process encounters an error.
+    
+    Notes:
+        - Uses global configuration to initialize supervisor model
+        - Loads checklist from specified path
+        - Relies on AgentSupervisor's authorization mechanism
     """
     # Initialize supervisor
     config = _global_memory.get('config', {})

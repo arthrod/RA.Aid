@@ -515,7 +515,33 @@ def check_interrupt():
         raise AgentInterrupt("Interrupt requested")
 
 def run_agent_with_retry(agent, prompt: str, config: dict) -> Optional[str]:
-    """Run an agent with retry logic for API errors."""
+    """
+    Run an agent with robust retry logic for handling API errors and interruptions.
+    
+    This function manages agent execution with comprehensive error handling, retry mechanisms, 
+    and interrupt support. It streams agent outputs, tracks execution depth, and implements 
+    exponential backoff for transient API errors.
+    
+    Parameters:
+        agent (Any): The agent to be executed
+        prompt (str): The input prompt for the agent
+        config (dict): Configuration settings for agent execution
+    
+    Returns:
+        Optional[str]: A success message if the agent completes execution, otherwise None
+    
+    Raises:
+        RuntimeError: If maximum retry attempts are exhausted
+        AgentInterrupt: If the agent execution is manually interrupted
+        KeyboardInterrupt: If a keyboard interrupt is detected
+    
+    Notes:
+        - Supports nested agent execution tracking via agent_depth
+        - Handles various API errors with exponential backoff
+        - Provides interrupt handling and signal management
+        - Logs debug information and error details
+        - Resets global memory flags after task/plan completion
+    """
     logger.debug("Running agent with prompt length: %d", len(prompt))
     original_handler = None
     if threading.current_thread() is threading.main_thread():
@@ -572,22 +598,79 @@ def run_agent_with_retry(agent, prompt: str, config: dict) -> Optional[str]:
 
 class AgentSupervisor:
     def __init__(self, model=None, max_turns=10):
+        """
+        Initialize an AgentSupervisor instance for managing task checklists.
+        
+        Parameters:
+            model (Optional[BaseChatModel]): The language model to be used. 
+                If not provided, retrieves the default model from global configuration.
+            max_turns (int, optional): Maximum number of turns allowed for task execution. 
+                Defaults to 10.
+        
+        Attributes:
+            model (BaseChatModel): The language model for agent interactions.
+            max_turns (int): Maximum execution turns limit.
+            checklist (List): An empty list to store task checklist items.
+        """
         self.model = model or _global_memory.get('config', {}).get('model')
         self.max_turns = max_turns
         self.checklist = []
 
     def load_checklist(self, checklist_path: str):
+        """
+        Load a checklist from a specified file path.
+        
+        Parameters:
+            checklist_path (str): The file path to the checklist text file.
+        
+        Side Effects:
+            Populates the instance's `checklist` attribute with lines read from the file.
+        
+        Raises:
+            FileNotFoundError: If the specified file cannot be found.
+            IOError: If there are issues reading the file.
+        """
         with open(checklist_path, 'r') as file:
             self.checklist = file.readlines()
 
     def save_checklist(self, checklist_path: str):
+        """
+        Save the current checklist to a specified file path.
+        
+        Parameters:
+            checklist_path (str): The file path where the checklist will be saved.
+        
+        Raises:
+            IOError: If there is an issue writing to the specified file path.
+        """
         with open(checklist_path, 'w') as file:
             file.writelines(self.checklist)
 
     def validate_checklist(self) -> bool:
         # Implement validation logic for the checklist
+        """
+        Validates the checklist by ensuring all items are non-empty.
+        
+        Checks that each item in the checklist is a non-empty string after stripping whitespace.
+        
+        Returns:
+            bool: True if all checklist items are non-empty, False otherwise.
+        """
         return all(item.strip() for item in self.checklist)
 
     def authorize_task_completion(self, task_output: str) -> bool:
         # Implement authorization logic based on the checklist
+        """
+        Determines whether a task can be considered complete based on checklist validation and task output.
+        
+        Parameters:
+            task_output (str): The output text from the task being evaluated for completion.
+        
+        Returns:
+            bool: True if the checklist is valid and the task output contains the word "complete", False otherwise.
+        
+        Notes:
+            - Checks the validity of the current checklist using `validate_checklist()`
+            - Performs a case-insensitive search for the word "complete" in the task output
+        """
         return self.validate_checklist() and "complete" in task_output.lower()
