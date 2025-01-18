@@ -569,3 +569,25 @@ def run_agent_with_retry(agent, prompt: str, config: dict) -> Optional[str]:
 
             if original_handler and threading.current_thread() is threading.main_thread():
                 signal.signal(signal.SIGINT, original_handler)
+
+class AgentSupervisor:
+    def __init__(self, model=None, max_turns=10):
+        self.model = model or _global_memory.get('config', {}).get('model')
+        self.max_turns = max_turns
+        self.checklist = []
+
+    def load_checklist(self, checklist_path: str):
+        with open(checklist_path, 'r') as file:
+            self.checklist = file.readlines()
+
+    def save_checklist(self, checklist_path: str):
+        with open(checklist_path, 'w') as file:
+            file.writelines(self.checklist)
+
+    def validate_checklist(self) -> bool:
+        # Implement validation logic for the checklist
+        return all(item.strip() for item in self.checklist)
+
+    def authorize_task_completion(self, task_output: str) -> bool:
+        # Implement authorization logic based on the checklist
+        return self.validate_checklist() and "complete" in task_output.lower()

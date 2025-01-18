@@ -3,7 +3,7 @@
 from langchain_core.tools import tool
 from typing import Dict, Any, Union, List
 from typing_extensions import TypeAlias
-from ..agent_utils import AgentInterrupt
+from ..agent_utils import AgentInterrupt, AgentSupervisor
 from ra_aid.exceptions import AgentInterrupt
 ResearchResult = Dict[str, Union[str, bool, Dict[int, Any], List[Any], None]]
 from rich.console import Console
@@ -347,3 +347,25 @@ def request_implementation(task_spec: str) -> Dict[str, Any]:
         "success": success,
         "reason": reason
     }
+
+@tool("authorize_task_completion")
+def authorize_task_completion(task_output: str) -> bool:
+    """Authorize task completion using the AgentSupervisor.
+    
+    Args:
+        task_output: The output of the task to be authorized
+        
+    Returns:
+        bool: True if the task is authorized as complete, False otherwise
+    """
+    # Initialize supervisor
+    config = _global_memory.get('config', {})
+    supervisor_model = initialize_llm(config.get('supervisor_provider', 'anthropic'), config.get('supervisor_model', 'claude-3-5-sonnet-20241022'))
+    supervisor = AgentSupervisor(model=supervisor_model, max_turns=config.get('supervisor_max_turns', 10))
+    
+    # Load checklist
+    checklist_path = config.get('checklist_path', 'checklist.txt')
+    supervisor.load_checklist(checklist_path)
+    
+    # Authorize task completion
+    return supervisor.authorize_task_completion(task_output)
