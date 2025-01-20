@@ -1,6 +1,9 @@
-import inspect
+import re
 from dataclasses import dataclass
 from typing import Dict, Any, Generator, List, Optional, Union
+from typing import Dict, Any, Generator, List, Optional, Union
+
+from ra_aid.tools.reflection import get_function_info
 
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage, SystemMessage
 from ra_aid.exceptions import ToolExecutionError
@@ -12,6 +15,24 @@ logger = get_logger(__name__)
 class ChunkMessage:
     content: str
     status: str
+
+def validate_function_call_pattern(s: str) -> bool:
+    """Check if a string matches the expected function call pattern.
+
+    Validates that the string represents a valid function call with:
+    - Function name consisting of word characters, underscores or hyphens
+    - Opening/closing parentheses with balanced nesting
+    - Arbitrary arguments inside parentheses
+    - Optional whitespace
+
+    Args:
+        s: String to validate
+
+    Returns:
+        bool: False if pattern matches (valid), True if invalid
+    """
+    pattern = r"^\s*[\w_\-]+\s*\([^)(]*(?:\([^)(]*\)[^)(]*)*\)\s*$"
+    return not re.match(pattern, s, re.DOTALL)
 
 class CiaynAgent:
     """Code Is All You Need (CIAYN) agent that uses generated Python code for tool interaction.
@@ -44,21 +65,6 @@ class CiaynAgent:
     - Memory management with configurable limits
     """
 
-    def _get_function_info(self, func):
-        """
-        Returns a well-formatted string containing the function signature and docstring,
-        designed to be easily readable by both humans and LLMs.
-        """
-        signature = inspect.signature(func)
-        docstring = inspect.getdoc(func)
-        if docstring is None:
-            docstring = "No docstring provided"
-        full_signature = f"{func.__name__}{signature}"
-        info = f"""{full_signature}
-\"\"\"
-{docstring}
-\"\"\""""
-        return info
 
     def __init__(self, model, tools: list, max_history_messages: int = 50, max_tokens: Optional[int] = 100000):
         """Initialize the agent with a model and list of tools.
@@ -75,7 +81,7 @@ class CiaynAgent:
         self.max_tokens = max_tokens
         self.available_functions = []
         for t in tools:
-            self.available_functions.append(self._get_function_info(t.func))
+            self.available_functions.append(get_function_info(t.func))
 
     def _build_prompt(self, last_result: Optional[str] = None) -> str:
         """Build the prompt for the agent including available tools and context."""
@@ -108,19 +114,72 @@ You must ONLY use ONE of the following functions (these are the ONLY functions t
 <available functions>""" + functions_list + """
 </available functions>
 
-You may use ANY of the above functions to complete your job. Use the best one for the current step you are on. Be efficient, avoid getting stuck in repetitive loops, and do not hesitate to call functions which delegate your work to make your life easier.
+You may use any of the above functions to complete your job. Use the best one for the current step you are on. Be efficient, avoid getting stuck in repetitive loops, and do not hesitate to call functions which delegate your work to make your life easier.
 But you MUST NOT assume tools exist that are not in the above list, e.g. write_file_tool.
 Consider your task done only once you have taken *ALL* the steps required to complete it.
+
+--- EXAMPLE BAD OUTPUTS ---
+
+This tool is not in available functions, so this is a bad tool call:
 
 <example bad output>
 write_file_tool(...)
 </example bad output>
 
+This tool call has a syntax error (unclosed parenthesis, quotes), so it is bad:
+
+<example bad output>
+write_file_tool("asdf
+</example bad output>
+
+This tool call is bad because it includes a message as well as backticks:
+
+<example bad output>
+Sure, I'll make the following tool call to accomplish what you asked me:
+
+```
+list_directory_tree('.')
+```
+</example bad output>
+
+This tool call is bad because the output code is surrounded with backticks:
+
+<example bad output>
+```
+list_directory_tree('.')
+```
+</example bad output>
+
+The following is bad becasue it makes the same tool call multiple times in a row with the exact same parameters, for no reason, getting stuck in a loop:
+
+<example bad output>
+<response 1>
+list_directory_tree('.')
+</response 1>
+<response 2>
+list_directory_tree('.')
+</response 2>
+</example bad output>
+
+The following is bad because it makes more than one tool call in one response:
+
+<example bad output>
+list_directory_tree('.')
+read_file_tool('README.md') # Now we've made 
+</example bad output.
+
+This is a good output because it calls the tool appropriately and with correct syntax:
+
+--- EXAMPLE GOOD OUTPUTS ---
+
 <example good output>
 request_research_and_implementation(\"\"\"
 Example query.
 \"\"\")
+</example good output>
 
+This is good output because it uses a multiple line string when needed and properly calls the tool, does not output backticks or extra information:
+<example good output>
 run_programming_task(\"\"\"
 # Example Programming Task
 
@@ -132,6 +191,15 @@ Implement a widget factory satisfying the following requirements:
 ...
 \"\"\")
 </example good output>
+
+As an agent, you will carefully plan ahead, carefully analyze tool call responses, and adapt to circumstances in order to accomplish your goal.
+
+We're entrusting you with a lot of autonomy and power, so be efficient and don't mess up.
+
+You have often been criticized for:
+
+- Making the same function calls over and over, getting stuck in a loop.
+
 DO NOT CLAIM YOU ARE FINISHED UNTIL YOU ACTUALLY ARE!
 Output **ONLY THE CODE** and **NO MARKDOWN BACKTICKS**"""
 
@@ -143,8 +211,16 @@ Output **ONLY THE CODE** and **NO MARKDOWN BACKTICKS**"""
             tool.func.__name__: tool.func
             for tool in self.tools
         }
-        
+
         try:
+            code = code.strip()
+            # code = code.replace("\n", " ")
+
+            # if the eval fails, try to extract it via a model call
+            if validate_function_call_pattern(code):
+                functions_list = "\n\n".join(self.available_functions)
+                code = _extract_tool_call(code, functions_list)
+
             result = eval(code.strip(), globals_dict)
             return result
         except Exception as e:
@@ -250,3 +326,35 @@ Output **ONLY THE CODE** and **NO MARKDOWN BACKTICKS**"""
             except ToolExecutionError as e:
                 chat_history.append(HumanMessage(content=f"Your tool call caused an error: {e}\n\nPlease correct your tool call and try again."))
                 yield self._create_error_chunk(str(e))
+
+def _extract_tool_call(code: str, functions_list: str) -> str:
+    from ra_aid.tools.expert import get_model
+
+    model = get_model()
+    prompt = f"""
+I'm conversing with a AI model and requiring responses in a particular format: A function call with any parameters escaped. Here is an example:
+
+```
+run_programming_task("blah \" blah\" blah")
+```
+
+The following tasks are allowed:
+
+{functions_list}
+
+I got this invalid response from the model, can you format it so it becomes a correct function call?
+
+```
+{code}
+```
+    """
+    response = model.invoke(prompt)
+    response = response.content
+
+    pattern = r"([\w_\-]+)\((.*?)\)"
+    matches = re.findall(pattern, response, re.DOTALL)
+    if len(matches) == 0:
+        raise ToolExecutionError("Failed to extract tool call")
+    ma = matches[0][0].strip()
+    mb = matches[0][1].strip().replace("\n", " ")
+    return f"{ma}({mb})"

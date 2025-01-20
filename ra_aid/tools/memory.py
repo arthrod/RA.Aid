@@ -1,3 +1,5 @@
+import os
+import os
 from typing import Dict, List, Any, Union, Optional, Set
 from typing_extensions import TypedDict
 
@@ -43,7 +45,7 @@ def emit_research_notes(notes: str) -> str:
     """Store research notes in global memory.
     
     Args:
-        notes: The research notes to store
+        notes: REQUIRED The research notes to store
         
     Returns:
         The stored notes
@@ -57,7 +59,7 @@ def emit_plan(plan: str) -> str:
     """Store a plan step in global memory.
     
     Args:
-        plan: The plan step to store
+        plan: The plan step to store (markdown format; be clear, complete, use newlines, and use as many tokens as you need)
         
     Returns:
         The stored plan
@@ -195,7 +197,7 @@ def emit_key_snippets(snippets: List[SnippetInfo]) -> str:
     This is for **existing**, or **just-written** files, not for things to be created in the future.
     
     Args:
-        snippets: List of snippet information dictionaries containing:
+        snippets: REQUIRED List of snippet information dictionaries containing:
                  - filepath: Path to the source file
                  - line_number: Line number where the snippet starts  
                  - snippet: The source code snippet text
@@ -369,9 +371,28 @@ def emit_related_files(files: List[str]) -> str:
     """
     results = []
     added_files = []
+    invalid_paths = []
     
     # Process files
     for file in files:
+        # First check if path exists
+        if not os.path.exists(file):
+            invalid_paths.append(file)
+            results.append(f"Error: Path '{file}' does not exist")
+            continue
+            
+        # Then check if it's a directory
+        if os.path.isdir(file):
+            invalid_paths.append(file)
+            results.append(f"Error: Path '{file}' is a directory, not a file")
+            continue
+            
+        # Finally validate it's a regular file
+        if not os.path.isfile(file):
+            invalid_paths.append(file)
+            results.append(f"Error: Path '{file}' exists but is not a regular file")
+            continue
+            
         # Check if file path already exists in values
         existing_id = None
         for fid, fpath in _global_memory['related_files'].items():

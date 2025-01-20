@@ -10,9 +10,11 @@ import threading
 import time
 from typing import Optional
 
+from ra_aid.project_info import get_project_info, format_project_info, display_project_status
+
 from langgraph.prebuilt import create_react_agent
 from ra_aid.agents.ciayn_agent import CiaynAgent
-from ra_aid.agents.ciayn_agent import CiaynAgent
+from ra_aid.project_info import get_project_info, format_project_info, display_project_status
 from ra_aid.console.formatting import print_stage_header, print_error
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import tool
@@ -42,6 +44,8 @@ from ra_aid.prompts import (
     WEB_RESEARCH_PROMPT_SECTION_PLANNING,
     HUMAN_PROMPT_SECTION_PLANNING,
     WEB_RESEARCH_PROMPT,
+    EXPERT_PROMPT_SECTION_CHAT,
+    CHAT_PROMPT,
 )
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -181,6 +185,14 @@ def run_research_agent(
     code_snippets = _global_memory.get("code_snippets", "")
     related_files = _global_memory.get("related_files", "")
 
+    # Get project info
+    try:
+        project_info = get_project_info(".", file_limit=2000)
+        formatted_project_info = format_project_info(project_info)
+    except Exception as e:
+        logger.warning(f"Failed to get project info: {e}")
+        formatted_project_info = ""
+
     # Build prompt
     prompt = (RESEARCH_ONLY_PROMPT if research_only else RESEARCH_PROMPT).format(
         base_task=base_task_or_query,
@@ -189,8 +201,10 @@ def run_research_agent(
         human_section=human_section,
         web_research_section=web_research_section,
         key_facts=key_facts,
+        work_log=get_memory_value('work_log'),
         code_snippets=code_snippets,
-        related_files=related_files
+        related_files=related_files,
+        project_info=formatted_project_info
     )
 
     # Set up configuration
@@ -205,6 +219,9 @@ def run_research_agent(
         # Display console message if provided
         if console_message:
             console.print(Panel(Markdown(console_message), title="🔬 Looking into it..."))
+
+        if project_info:
+            display_project_status(project_info)
 
         # Run agent with retry logic if available
         if agent is not None:
@@ -382,6 +399,7 @@ def run_planning_agent(
         related_files="\n".join(get_related_files()),
         key_facts=get_memory_value('key_facts'),
         key_snippets=get_memory_value('key_snippets'),
+        work_log=get_memory_value('work_log'),
         research_only_note='' if config.get('research_only') else ' Only request implementation if the user explicitly asked for changes to be made.'
     )
 
@@ -544,7 +562,7 @@ def run_agent_with_retry(agent, prompt: str, config: dict) -> Optional[str]:
                             _global_memory['task_completed'] = False
                             _global_memory['completion_message'] = ''
                             break
-                        if _global_memory['task_completed'] or _global_memory['plan_completed']:
+                        if _global_memory['task_completed']:
                             _global_memory['task_completed'] = False
                             _global_memory['completion_message'] = ''
                             break
@@ -552,7 +570,11 @@ def run_agent_with_retry(agent, prompt: str, config: dict) -> Optional[str]:
                     return "Agent run completed successfully"
                 except (KeyboardInterrupt, AgentInterrupt):
                     raise
-                except (InternalServerError, APITimeoutError, RateLimitError, APIError) as e:
+                except (InternalServerError, APITimeoutError, RateLimitError, APIError, ValueError) as e:
+                    if isinstance(e, ValueError):
+                        error_str = str(e).lower()
+                        if 'code' not in error_str or '429' not in error_str:
+                            raise  # Re-raise ValueError if it's not a Lambda 429
                     if attempt == max_retries - 1:
                         logger.error("Max retries reached, failing: %s", str(e))
                         raise RuntimeError(f"Max retries ({max_retries}) exceeded. Last error: {e}")

@@ -9,14 +9,14 @@ ResearchResult = Dict[str, Union[str, bool, Dict[int, Any], List[Any], None]]
 from rich.console import Console
 from ra_aid.tools.memory import _global_memory
 from ra_aid.console.formatting import print_error
-from .memory import get_memory_value, get_related_files, get_work_log, reset_work_log
+from .memory import get_memory_value, get_related_files, get_work_log
 from .human import ask_human
 from ..llm import initialize_llm
 from ..console import print_task_header
 
 CANCELLED_BY_USER_REASON = "The operation was explicitly cancelled by the user. This typically is an indication that the action requested was not aligned with the user request."
 
-RESEARCH_AGENT_RECURSION_LIMIT = 2
+RESEARCH_AGENT_RECURSION_LIMIT = 3
 
 console = Console()
 
@@ -78,17 +78,13 @@ def request_research(query: str) -> ResearchResult:
         # Get completion message if available
         completion_message = _global_memory.get('completion_message', 'Task was completed successfully.' if success else None)
         
-        # Get and reset work log if at root depth
-        work_log = get_work_log() if current_depth == 1 else None
-        if current_depth == 1:
-            reset_work_log()
+        work_log = get_work_log()
             
         # Clear completion state from global memory
         _global_memory['completion_message'] = ''
         _global_memory['task_completed'] = False
         
-    return {
-        "work_log": work_log,
+    response_data = {
         "completion_message": completion_message,
         "key_facts": get_memory_value("key_facts"),
         "related_files": get_related_files(),
@@ -97,6 +93,9 @@ def request_research(query: str) -> ResearchResult:
         "success": success,
         "reason": reason
     }
+    if work_log is not None:
+        response_data["work_log"] = work_log
+    return response_data
 
 @tool("request_web_research")
 def request_web_research(query: str) -> ResearchResult:
@@ -138,28 +137,29 @@ def request_web_research(query: str) -> ResearchResult:
         # Get completion message if available
         completion_message = _global_memory.get('completion_message', 'Task was completed successfully.' if success else None)
         
-        # Get and reset work log if at root depth
-        current_depth = _global_memory.get('agent_depth', 0)
-        work_log = get_work_log() if current_depth == 1 else None
-        if current_depth == 1:
-            reset_work_log()
+        work_log = get_work_log()
             
         # Clear completion state from global memory
         _global_memory['completion_message'] = ''
         _global_memory['task_completed'] = False
         
-    return {
-        "work_log": work_log,
+    response_data = {
         "completion_message": completion_message,
         "key_snippets": get_memory_value("key_snippets"),
         "research_notes": get_memory_value("research_notes"),
         "success": success,
         "reason": reason
     }
+    if work_log is not None:
+        response_data["work_log"] = work_log
+    return response_data
 
 @tool("request_research_and_implementation")
 def request_research_and_implementation(query: str) -> Dict[str, Any]:
     """Spawn a research agent to investigate and implement the given query.
+    
+    If you are calling this on behalf of a user request, you must *faithfully*
+    represent all info the user gave you, sometimes even to the point of repeating the user query verbatim.
     
     Args:
         query: The research question or project description
@@ -198,19 +198,14 @@ def request_research_and_implementation(query: str) -> Dict[str, Any]:
     # Get completion message if available
     completion_message = _global_memory.get('completion_message', 'Task was completed successfully.' if success else None)
     
-    # Get and reset work log if at root depth
-    current_depth = _global_memory.get('agent_depth', 0)
-    work_log = get_work_log() if current_depth == 1 else None
-    if current_depth == 1:
-        reset_work_log()
+    work_log = get_work_log()
     
     # Clear completion state from global memory
     _global_memory['completion_message'] = ''
     _global_memory['task_completed'] = False
     _global_memory['plan_completed'] = False
 
-    return {
-        "work_log": work_log,
+    response_data = {
         "completion_message": completion_message,
         "key_facts": get_memory_value("key_facts"),
         "related_files": get_related_files(),
@@ -219,13 +214,16 @@ def request_research_and_implementation(query: str) -> Dict[str, Any]:
         "success": success,
         "reason": reason
     }
+    if work_log is not None:
+        response_data["work_log"] = work_log
+    return response_data
 
 @tool("request_task_implementation")
 def request_task_implementation(task_spec: str) -> Dict[str, Any]:
     """Spawn an implementation agent to execute the given task.
     
     Args:
-        task_spec: The full task specification
+        task_spec: REQUIRED The full task specification (markdown format, typically one part of the overall plan)
     """
     # Initialize model from config
     config = _global_memory.get('config', {})
@@ -269,17 +267,13 @@ def request_task_implementation(task_spec: str) -> Dict[str, Any]:
     completion_message = _global_memory.get('completion_message', 'Task was completed successfully.' if success else None)
     
     # Get and reset work log if at root depth
-    current_depth = _global_memory.get('agent_depth', 0)
-    work_log = get_work_log() if current_depth == 1 else None
-    if current_depth == 1:
-        reset_work_log()
+    work_log = get_work_log()
     
     # Clear completion state from global memory
     _global_memory['completion_message'] = ''
     _global_memory['task_completed'] = False
         
-    return {
-        "work_log": work_log,
+    response_data = {
         "key_facts": get_memory_value("key_facts"),
         "related_files": get_related_files(),
         "key_snippets": get_memory_value("key_snippets"),
@@ -287,6 +281,9 @@ def request_task_implementation(task_spec: str) -> Dict[str, Any]:
         "success": success,
         "reason": reason
     }
+    if work_log is not None:
+        response_data["work_log"] = work_log
+    return response_data
 
 @tool("request_implementation")
 def request_implementation(task_spec: str) -> Dict[str, Any]:
@@ -328,18 +325,14 @@ def request_implementation(task_spec: str) -> Dict[str, Any]:
     completion_message = _global_memory.get('completion_message', 'Task was completed successfully.' if success else None)
     
     # Get and reset work log if at root depth
-    current_depth = _global_memory.get('agent_depth', 0)
-    work_log = get_work_log() if current_depth == 1 else None
-    if current_depth == 1:
-        reset_work_log()
+    work_log = get_work_log()
     
     # Clear completion state from global memory
     _global_memory['completion_message'] = ''
     _global_memory['task_completed'] = False
     _global_memory['plan_completed'] = False
         
-    return {
-        "work_log": work_log,
+    response_data = {
         "completion_message": completion_message,
         "key_facts": get_memory_value("key_facts"),
         "related_files": get_related_files(),
@@ -347,3 +340,6 @@ def request_implementation(task_spec: str) -> Dict[str, Any]:
         "success": success,
         "reason": reason
     }
+    if work_log is not None:
+        response_data["work_log"] = work_log
+    return response_data
