@@ -1,6 +1,7 @@
 import os
 from typing import Any, Dict, Optional
 
+from openai import OpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -8,8 +9,50 @@ from langchain_openai import ChatOpenAI
 
 from ra_aid.chat_models.deepseek_chat import ChatDeepseekReasoner
 from ra_aid.logging_config import get_logger
+from typing import List
 
 from .models_params import models_params
+
+def get_available_openai_models() -> List[str]:
+    """Fetch available OpenAI models using OpenAI client.
+    
+    Returns:
+        List of available model names
+    """
+    try:
+        # Use OpenAI client to fetch models
+        client = OpenAI()
+        models = client.models.list()
+        return [str(model.id) for model in models.data]
+    except Exception:
+        # Return empty list if unable to fetch models 
+        return []
+
+def select_expert_model(provider: str, model: Optional[str] = None) -> Optional[str]:
+    """Select appropriate expert model based on provider and availability.
+    
+    Args:
+        provider: The LLM provider
+        model: Optional explicitly specified model name
+    
+    Returns:
+        Selected model name or None if no suitable model found
+    """
+    if provider != "openai" or model is not None:
+        return model
+        
+    # Try to get available models
+    available_models = get_available_openai_models()
+    
+    # Priority order for expert models
+    priority_models = ["o3-mini", "o1", "o1-preview"]
+    
+    # Return first available model from priority list
+    for model_name in priority_models:
+        if model_name in available_models:
+            return model_name
+            
+    return None
 
 known_temp_providers = {
     "openai",
@@ -19,6 +62,10 @@ known_temp_providers = {
     "gemini",
     "deepseek",
 }
+
+# Constants for API request configuration
+LLM_REQUEST_TIMEOUT = 180
+LLM_MAX_RETRIES = 5
 
 logger = get_logger(__name__)
 
@@ -51,6 +98,8 @@ def create_deepseek_client(
             if is_expert
             else (temperature if temperature is not None else 1),
             model=model_name,
+            timeout=LLM_REQUEST_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
         )
 
     return ChatOpenAI(
@@ -58,6 +107,8 @@ def create_deepseek_client(
         base_url=base_url,
         temperature=0 if is_expert else (temperature if temperature is not None else 1),
         model=model_name,
+        timeout=LLM_REQUEST_TIMEOUT,
+        max_retries=LLM_MAX_RETRIES,
     )
 
 
@@ -76,12 +127,16 @@ def create_openrouter_client(
             if is_expert
             else (temperature if temperature is not None else 1),
             model=model_name,
+            timeout=LLM_REQUEST_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
         )
 
     return ChatOpenAI(
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
         model=model_name,
+        timeout=LLM_REQUEST_TIMEOUT,
+        max_retries=LLM_MAX_RETRIES,
         **({"temperature": temperature} if temperature is not None else {}),
     )
 
@@ -138,6 +193,11 @@ def create_llm_client(
     if not config:
         raise ValueError(f"Unsupported provider: {provider}")
 
+    if is_expert and provider == "openai":
+        model_name = select_expert_model(provider, model_name)
+        if not model_name:
+            raise ValueError("No suitable expert model available")
+
     logger.debug(
         "Creating LLM client with provider=%s, model=%s, temperature=%s, expert=%s",
         provider,
@@ -158,10 +218,10 @@ def create_llm_client(
     # Handle temperature settings
     if is_expert:
         temp_kwargs = {"temperature": 0} if supports_temperature else {}
-    elif temperature is not None and supports_temperature:
+    elif supports_temperature:
+        if temperature is None:
+            raise ValueError(f"Temperature must be provided for model {model_name} which supports temperature")
         temp_kwargs = {"temperature": temperature}
-    elif provider == "openai-compatible" and supports_temperature:
-        temp_kwargs = {"temperature": 0.3}
     else:
         temp_kwargs = {}
 
@@ -181,15 +241,24 @@ def create_llm_client(
             is_expert=is_expert,
         )
     elif provider == "openai":
-        return ChatOpenAI(
-            api_key=config["api_key"],
-            model=model_name,
+        openai_kwargs = {
+            "api_key": config["api_key"],
+            "model": model_name,
             **temp_kwargs,
-        )
+        }
+        if is_expert:
+            openai_kwargs["reasoning_effort"] = "high"
+        return ChatOpenAI(**{
+            **openai_kwargs,
+            "timeout": LLM_REQUEST_TIMEOUT,
+            "max_retries": LLM_MAX_RETRIES,
+        })
     elif provider == "anthropic":
         return ChatAnthropic(
             api_key=config["api_key"],
             model_name=model_name,
+            timeout=LLM_REQUEST_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
             **temp_kwargs,
         )
     elif provider == "openai-compatible":
@@ -197,12 +266,16 @@ def create_llm_client(
             api_key=config["api_key"],
             base_url=config["base_url"],
             model=model_name,
+            timeout=LLM_REQUEST_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
             **temp_kwargs,
         )
     elif provider == "gemini":
         return ChatGoogleGenerativeAI(
             api_key=config["api_key"],
             model=model_name,
+            timeout=LLM_REQUEST_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
             **temp_kwargs,
         )
     else:
@@ -217,7 +290,7 @@ def initialize_llm(
 
 
 def initialize_expert_llm(
-    provider: str = "openai", model_name: str = "o1"
+    provider: str, model_name: str
 ) -> BaseChatModel:
     """Initialize an expert language model client based on the specified provider and model."""
     return create_llm_client(provider, model_name, temperature=None, is_expert=True)

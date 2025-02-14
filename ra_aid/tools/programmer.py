@@ -1,4 +1,7 @@
 import os
+import os
+import sys
+from pathlib import Path
 from typing import Dict, List, Union
 
 from langchain_core.tools import tool
@@ -10,10 +13,41 @@ from rich.text import Text
 from ra_aid.logging_config import get_logger
 from ra_aid.proc.interactive import run_interactive_command
 from ra_aid.text.processing import truncate_output
-from ra_aid.tools.memory import _global_memory
+from ra_aid.tools.memory import _global_memory, log_work_event
 
 console = Console()
 logger = get_logger(__name__)
+
+
+def get_aider_executable() -> str:
+    """Get the path to the aider executable in the same bin/Scripts directory as Python.
+    
+    Returns:
+        str: Full path to aider executable
+    """
+    # Get directory containing Python executable 
+    bin_dir = Path(sys.executable).parent
+    
+    # Check for platform-specific executable name
+    if sys.platform == "win32":
+        aider_exe = bin_dir / "aider.exe"
+    else:
+        aider_exe = bin_dir / "aider"
+        
+    if not aider_exe.exists():
+        raise RuntimeError(f"Could not find aider executable at {aider_exe}")
+    
+    if not os.access(aider_exe, os.X_OK):
+        raise RuntimeError(f"Aider executable at {aider_exe} is not executable")
+        
+    return str(aider_exe)
+
+
+def _truncate_for_log(text: str, max_length: int = 300) -> str:
+    """Truncate text for logging, adding [truncated] if necessary."""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length] + "... [truncated]"
 
 
 @tool
@@ -26,30 +60,26 @@ def run_programming_task(
 
     The programmer sees only what you provide, no conversation history.
 
-    Give detailed instructions but do not write their code.
+    Give detailed instructions including multi-file tasks but do not write their code.
 
-    They are intelligent and can edit multiple files.
+    The programmer cannot run commands.
 
     If new files are created, emit them after finishing.
 
-    They can add/modify files, but not remove. Use run_shell_command to remove files. If referencing files you’ll delete, remove them after they finish.
+    They can add/modify files, but not remove. Use run_shell_command to remove files. If referencing files you'll delete, remove them after they finish.
+
+    If the programmer wrote files, they actually wrote to disk. You do not need to rewrite the output of what the programmer showed you.
 
     Args:
-     instructions: REQUIRED Programming task instructions (markdown format, use newlines and as many tokens as needed)
+     instructions: REQUIRED Programming task instructions (markdown format, use newlines and as many tokens as needed, no commands allowed)
      files: Optional; if not provided, uses related_files
 
     Returns: { "output": stdout+stderr, "return_code": 0 if success, "success": True/False }
     """
-    # Get related files if no specific files provided
-    file_paths = (
-        list(_global_memory["related_files"].values())
-        if "related_files" in _global_memory
-        else []
-    )
-
     # Build command
+    aider_exe = get_aider_executable()
     command = [
-        "aider",
+        aider_exe,
         "--yes-always",
         "--no-auto-commits",
         "--dark-mode",
@@ -57,6 +87,13 @@ def run_programming_task(
         "--no-show-release-notes",
         "--no-check-update",
     ]
+
+    # Get combined list of files (explicit + related) with normalized paths
+    # and deduplicated using set operations
+    files_to_use = list({os.path.abspath(f) for f in (files or [])} | {
+        os.path.abspath(f) for f in _global_memory["related_files"].values() 
+        if "related_files" in _global_memory
+    })
 
     # Add config file if specified
     if "config" in _global_memory and _global_memory["config"].get("aider_config"):
@@ -74,9 +111,6 @@ def run_programming_task(
     command.append("-m")
 
     command.append(instructions)
-
-    # Add files to command
-    files_to_use = file_paths + (files or [])
     if files_to_use:
         command.extend(files_to_use)
 
@@ -101,14 +135,17 @@ def run_programming_task(
     try:
         # Run the command interactively
         print()
-        output, return_code = run_interactive_command(command)
+        result = run_interactive_command(command)
         print()
 
+        # Log the programming task
+        log_work_event(f"Executed programming task: {_truncate_for_log(instructions)}")
+        
         # Return structured output
         return {
-            "output": truncate_output(output.decode() if output else ""),
-            "return_code": return_code,
-            "success": return_code == 0,
+            "output": truncate_output(result[0].decode()) if result[0] else "",
+            "return_code": result[1],
+            "success": result[1] == 0,
         }
 
     except Exception as e:
@@ -122,20 +159,23 @@ def run_programming_task(
 
 
 def parse_aider_flags(aider_flags: str) -> List[str]:
-    """Parse a string of aider flags into a list of flags.
+    """Parse a string of aider flags into a list of flags and their values.
 
     Args:
         aider_flags: A string containing comma-separated flags, with or without leading dashes.
                     Can contain spaces around flags and commas.
+                    Supports flags with values (e.g. --analytics-log filename.json)
 
     Returns:
-        A list of flags with proper '--' prefix.
+        A list of flags with proper '--' prefix and their values as separate elements.
 
     Examples:
         >>> parse_aider_flags("yes-always,dark-mode")
         ['--yes-always', '--dark-mode']
         >>> parse_aider_flags("--yes-always, --dark-mode")
         ['--yes-always', '--dark-mode']
+        >>> parse_aider_flags("--analytics-log filename.json")
+        ['--analytics-log', 'filename.json']
         >>> parse_aider_flags("")
         []
     """
@@ -143,11 +183,28 @@ def parse_aider_flags(aider_flags: str) -> List[str]:
         return []
 
     # Split by comma and strip whitespace
-    flags = [flag.strip() for flag in aider_flags.split(",")]
+    flag_groups = [group.strip() for group in aider_flags.split(",")]
+    
+    result = []
+    for group in flag_groups:
+        if not group:
+            continue
+            
+        # Split by space to separate flag from value
+        parts = group.split()
+        
+        # Add '--' prefix to the flag if not present, stripping any extra dashes
+        flag = parts[0].lstrip("-")  # Remove all leading dashes
+        flag = f"--{flag}"  # Add exactly two dashes
+        
+        result.append(flag)
+        
+        # Add any remaining parts as separate values
+        if len(parts) > 1:
+            result.extend(parts[1:])
 
-    # Add '--' prefix if not present and filter out empty flags
-    return [f"--{flag.lstrip('-')}" for flag in flags if flag.strip()]
+    return result
 
 
 # Export the functions
-__all__ = ["run_programming_task"]
+__all__ = ["run_programming_task", "get_aider_executable"]

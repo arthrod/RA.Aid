@@ -8,14 +8,27 @@ from rich.prompt import Prompt
 from ra_aid.console.cowboy_messages import get_cowboy_message
 from ra_aid.proc.interactive import run_interactive_command
 from ra_aid.text.processing import truncate_output
-from ra_aid.tools.memory import _global_memory
+from ra_aid.tools.memory import _global_memory, log_work_event
 
 console = Console()
 
 
+def _truncate_for_log(text: str, max_length: int = 300) -> str:
+    """Truncate text for logging, adding [truncated] if necessary."""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length] + "... [truncated]"
+
+
 @tool
-def run_shell_command(command: str) -> Dict[str, Union[str, int, bool]]:
+def run_shell_command(command: str, expected_runtime_seconds: int = 30) -> Dict[str, Union[str, int, bool]]:
     """Execute a shell command and return its output.
+
+    Args:
+        command: The shell command to execute
+        expected_runtime_seconds: Expected runtime in seconds, defaults to 30.
+            If process exceeds 2x this value, it will be terminated gracefully.
+            If process exceeds 3x this value, it will be killed forcefully.
 
     Important notes:
     1. Try to constrain/limit the output. Output processing is expensive, and infinite/looping output will cause us to fail.
@@ -66,13 +79,15 @@ def run_shell_command(command: str) -> Dict[str, Union[str, int, bool]]:
 
     try:
         print()
-        output, return_code = run_interactive_command(["/bin/bash", "-c", command])
+        output, return_code = run_interactive_command(["/bin/bash", "-c", command], expected_runtime_seconds=expected_runtime_seconds)
         print()
-        return {
+        result = {
             "output": truncate_output(output.decode()) if output else "",
             "return_code": return_code,
             "success": return_code == 0,
         }
+        log_work_event(f"Executed shell command: {_truncate_for_log(command)}")
+        return result
     except Exception as e:
         print()
         console.print(Panel(str(e), title="❌ Error", border_style="red"))

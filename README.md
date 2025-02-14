@@ -1,28 +1,16 @@
-  ```ascii
-
-  ██▀███   ▄▄▄            ▄▄▄       ██▓▓█████▄
- ▓██ ▒ ██▒▒████▄         ▒████▄    ▓██▒▒██▀ ██▌
- ▓██ ░▄█ ▒▒██  ▀█▄       ▒██  ▀█▄  ▒██▒░██   █▌
- ▒██▀▀█▄  ░██▄▄▄▄██      ░██▄▄▄▄██ ░██░░▓█▄   ▌
- ░██▓ ▒██▒ ▓█   ▓██▒ ██▓  ▓█   ▓██▒░██░░▒████▓
- ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ ▒▓▒  ▒▒   ▓▒█░░▓   ▒▒▓  ▒
-   ░▒ ░ ▒░  ▒   ▒▒ ░ ░▒    ▒   ▒▒ ░ ▒ ░ ░ ▒  ▒
-   ░░   ░   ░   ▒    ░     ░   ▒    ▒ ░ ░ ░  ░
-    ░           ░  ░  ░        ░  ░ ░     ░
-                      ░                 ░
-```
+<img src="assets/RA-black-bg.png" alt="RA.Aid - Develop software autonomously." style="margin-bottom: 20px;">
 
 [![Python Versions](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-Beta-yellow)]()
 
-# RA.Aid
+**Develop software autonomously.**
 
-**AI software development agent powered by `aider` and advanced reasoning models like `o1`.**
+RA.Aid (pronounced "raid") helps you develop software autonomously. It was made by putting `aider` (https://aider.chat/) in a LangChain ReAct agent loop. This unique combination allows developers to leverage `aider`'s code editing capabilities while benefiting from LangChain's agent-based task execution framework. The tool provides an intelligent assistant that can help with research, planning, and implementation of multi-step development tasks.
 
-RA.Aid (ReAct Aid) was made by putting `aider` (https://aider.chat/) in a LangChain ReAct agent loop. This unique combination allows developers to leverage aider's code editing capabilities while benefiting from LangChain's agent-based task execution framework. The tool provides an intelligent assistant that can help with research, planning, and implementation of multi-step development tasks.
+The result is **near-fully-autonomous software development**.
 
-RA.Aid is a practical tool for everyday software development and is used for developing real-world applications.
+**Enjoying RA.Aid?** Show your support by giving us a star ⭐ on [GitHub](https://github.com/ai-christianson/RA.Aid)!
 
 Here's a demo of RA.Aid adding a feature to itself:
 
