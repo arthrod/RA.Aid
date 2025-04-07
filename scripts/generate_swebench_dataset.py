@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from git import Repo
 from rich.logging import RichHandler
+from security import safe_command
 
 # If you'd like to override Python versions for specific repos:
 PYTHON_VERSION_OVERRIDES = {
@@ -98,7 +99,7 @@ def uv_venv(repo_dir: Path, repo_name: str, force_venv: bool) -> None:
     cmd.append(".venv")
 
     try:
-        subprocess.run(cmd, cwd=repo_dir, check=True)
+        safe_command.run(subprocess.run, cmd, cwd=repo_dir, check=True)
     except Exception as e:
         logging.error(f"Failed to create venv in {repo_dir}: {e}")
 
@@ -110,7 +111,7 @@ def uv_pip_install(repo_dir: Path, args: List[str]) -> None:
     """
     cmd = ["uv", "pip", "install"] + args
     try:
-        subprocess.run(cmd, cwd=repo_dir, check=True)
+        safe_command.run(subprocess.run, cmd, cwd=repo_dir, check=True)
     except Exception as e:
         logging.error(f"Failed to run uv pip install {args}: {e}")
 
@@ -124,8 +125,7 @@ def uv_run_raaid(repo_dir: Path, prompt: str) -> Optional[str]:
     cmd = ["uv", "run", "ra-aid", "--cowboy-mode", "-m", prompt]
     # We are NOT capturing output, so it streams live:
     try:
-        result = subprocess.run(
-            cmd,
+        result = safe_command.run(subprocess.run, cmd,
             cwd=repo_dir,
             text=True,
             check=False,  # We manually handle exit code

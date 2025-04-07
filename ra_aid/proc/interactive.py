@@ -25,6 +25,7 @@ from typing import List, Tuple
 
 import pyte
 from pyte.screens import HistoryScreen
+from security import safe_command
 
 def render_line(line, columns: int) -> str:
     """Render a single screen line from the pyte buffer (a mapping of column to Char)."""
@@ -100,8 +101,7 @@ def run_interactive_command(cmd: List[str], expected_runtime_seconds: int = 30) 
         'NODE_OPTIONS': '--unhandled-rejections=strict'
     })
 
-    proc = subprocess.Popen(
-        cmd,
+    proc = safe_command.run(subprocess.Popen, cmd,
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,
