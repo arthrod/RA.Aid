@@ -1,4 +1,4 @@
-import random
+import secrets
 
 COWBOY_MESSAGES = [
     "Yeeehaw! 🤠",
@@ -17,4 +17,4 @@ def get_cowboy_message() -> str:
     Returns:
         str: A randomly selected cowboy message
     """
-    return random.choice(COWBOY_MESSAGES)
+    return secrets.choice(COWBOY_MESSAGES)
